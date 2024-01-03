@@ -81,7 +81,19 @@ function addon:UseProfile(profile, check, cache)
         self:UpdateGUI()
     end
 
+    self:RefreshMacroIcons()
+
     return res.fail, res.total
+end
+
+function addon:RefreshMacroIcons()
+    -- reset macro icons to the question mark so they can be dynamic
+    for index = 1, MAX_ACCOUNT_MACROS + MAX_CHARACTER_MACROS do
+        name, icon, body = GetMacroInfo(index)
+        if body and strsub(body, 0, 12) == "#showtooltip" then
+           index = EditMacro(index, name, 134400, body) -- 134400 is the question mark icon
+        end
+     end
 end
 
 function addon:RestoreMacros(profile, check, cache, res)
@@ -212,68 +224,104 @@ function addon:RestoreMacros(profile, check, cache, res)
 end
 
 function addon:RestoreTalents(profile, check, cache, res)
-    local fail, total = 0, 0
+    local configID = C_ClassTalents.GetActiveConfigID()
+    if configID == nil then return end
 
-    -- hack: update cache
-    local talents = { id = {}, name = {} }
-    local rest = self.auraState or IsResting()
+    local configInfo = C_Traits.GetConfigInfo(configID)
+    if configInfo == nil then return end
 
-    local tier
-    for tier = 1, MAX_TALENT_TIERS do
-        local link = profile.talents[tier]
-        if link then
-            -- has action
-            local ok
-            total = total + 1
+    local treeReset = false
 
-            local data, name = link:match("^|c.-|H(.-)|h%[(.-)%]|h|r$")
-            link = link:gsub("|Habp:.+|h(%[.+%])|h", "%1")
+    for _, treeID in ipairs(configInfo.treeIDs) do -- in the context of talent trees, there is only 1 treeID
+        treeReset = C_Traits.ResetTree(configID, treeID)
+    end
 
-            if data then
-                local type, sub = strsplit(":", data)
-                local id = tonumber(sub)
+    if not treeReset then return end
 
-                if type == "talent" then
-                    local found = self:GetFromCache(cache.allTalents[tier], id, name, not check and link)
-                    if found then
-                        if self:GetFromCache(cache.talents, id) or rest or select(2, GetTalentTierInfo(tier, 1)) == 0 then
-                            ok = true
-
-                            -- hack: update cache
-                            self:UpdateCache(talents, found, id, select(2, GetTalentInfoByID(id)))
-
-                            if not check then
-                                LearnTalent(found)
-                            end
-                        else
-                            self:cPrintf(not check, L.msg_cant_learn_talent, link)
-                        end
-                    else
-                        self:cPrintf(not check, L.msg_talent_not_exists, link)
-                    end
-                else
-                    self:cPrintf(not check, L.msg_bad_link, link)
-                end
+    for _, talent in ipairs(profile.talents) do
+        local ranksPurchased = 0
+        while ranksPurchased < talent["ranksPurchased"] do
+            local success
+            if talent["isSelectionNode"] then
+                success = C_Traits.SetSelection(configID, talent["nodeID"], talent["entryID"])
             else
-                self:cPrintf(not check, L.msg_bad_link, link)
+                success = C_Traits.PurchaseRank(configID, talent["nodeID"])
             end
 
-            if not ok then
-                fail = fail + 1
+            if not success then
+                self:Printf('Unable to learn: ' .. talent["spellName"])
+            else
+                -- self:Printf('Learned one rank of: ' .. talent["spellName"])
+                ranksPurchased = ranksPurchased + 1
             end
         end
     end
 
-    -- hack: update cache
-    cache.talents = talents
-
-    if res then
-        res.fail = res.fail + fail
-        res.total = res.total + total
-    end
-
-    return fail, total
+    C_Traits.CommitConfig(configID)
 end
+-- function addon:RestoreTalents(profile, check, cache, res)
+--     local fail, total = 0, 0
+
+--     -- hack: update cache
+--     local talents = { id = {}, name = {} }
+--     local rest = self.auraState or IsResting()
+
+--     local tier
+--     for tier = 1, MAX_TALENT_TIERS do
+--         local link = profile.talents[tier]
+--         if link then
+--             -- has action
+--             local ok
+--             total = total + 1
+
+--             local data, name = link:match("^|c.-|H(.-)|h%[(.-)%]|h|r$")
+--             link = link:gsub("|Habp:.+|h(%[.+%])|h", "%1")
+
+--             if data then
+--                 local type, sub = strsplit(":", data)
+--                 local id = tonumber(sub)
+
+--                 if type == "talent" then
+--                     local found = self:GetFromCache(cache.allTalents[tier], id, name, not check and link)
+--                     if found then
+--                         if self:GetFromCache(cache.talents, id) or rest or select(2, GetTalentTierInfo(tier, 1)) == 0 then
+--                             ok = true
+
+--                             -- hack: update cache
+--                             self:UpdateCache(talents, found, id, select(2, GetTalentInfoByID(id)))
+
+--                             if not check then
+--                                 LearnTalent(found)
+--                             end
+--                         else
+--                             self:cPrintf(not check, L.msg_cant_learn_talent, link)
+--                         end
+--                     else
+--                         self:cPrintf(not check, L.msg_talent_not_exists, link)
+--                     end
+--                 else
+--                     self:cPrintf(not check, L.msg_bad_link, link)
+--                 end
+--             else
+--                 self:cPrintf(not check, L.msg_bad_link, link)
+--             end
+
+--             if not ok then
+--                 fail = fail + 1
+--             end
+--         end
+--     end
+
+--     -- hack: update cache
+--     cache.talents = talents
+
+--     if res then
+--         res.fail = res.fail + fail
+--         res.total = res.total + total
+--     end
+
+--     return fail, total
+-- end
 
 function addon:RestorePvpTalents(profile, check, cache, res)
     if not profile.pvpTalents then
@@ -962,8 +1010,8 @@ function addon:PreloadBags(bags)
     local bag
     for bag = BACKPACK_CONTAINER, NUM_BAG_SLOTS do
         local index
-        for index = 1, GetContainerNumSlots(bag) do
-            local id = GetContainerItemID(bag, index)
+        for index = 1, C_Container.GetContainerNumSlots(bag) do
+            local id = C_Container.GetContainerItemID(bag, index)
             if id then
                 self:UpdateCache(bags, { bag, index }, id, GetItemInfo(id))
             end
@@ -1171,7 +1219,7 @@ function addon:PlaceContainerItem(slot, bag, id, link, count)
     count = count or ABP_PICKUP_RETRY_COUNT
 
     ClearCursor()
-    PickupContainerItem(bag, id)
+    C_Container.PickupContainerItem(bag, id)
 
     if not CursorHasItem() then
         if count > 0 then

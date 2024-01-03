@@ -137,21 +137,67 @@ function addon:SaveActions(profile)
     end
 
     local talents = {}
-
-    local tier
-    for tier = 1, MAX_TALENT_TIERS do
-        local column = select(2, GetTalentTierInfo(tier, 1))
-        if column and column > 0 then
-            local id, name = GetTalentInfo(tier, column, 1)
-
-            if tsNames[name] then
-                tsIds[tsNames[name]] = id
+    local configID = C_ClassTalents.GetActiveConfigID()
+    if configID == nil then return end
+    
+    local configInfo = C_Traits.GetConfigInfo(configID)
+    if configInfo == nil then return end
+    
+    for _, treeID in ipairs(configInfo.treeIDs) do -- in the context of talent trees, there is only 1 treeID
+        local nodes = C_Traits.GetTreeNodes(treeID)
+        
+        for i, nodeID in ipairs(nodes) do
+            local nodeInfo = C_Traits.GetNodeInfo(configID, nodeID)
+            
+            for k, entryID in pairs(nodeInfo.entryIDsWithCommittedRanks) do
+                -- each node can have multiple entries (e.g. choice nodes have 2)
+                local entryInfo = C_Traits.GetEntryInfo(configID, entryID)
+                
+                if entryInfo and entryInfo.definitionID then
+                local definitionInfo = C_Traits.GetDefinitionInfo(entryInfo.definitionID)
+                
+                if definitionInfo.spellID then
+                    local spellName = GetSpellInfo(definitionInfo.spellID)
+                    talents[#talents+1] = {
+                        nodeID = nodeInfo.ID,
+                        entryID = entryID,
+                        spellID = definitionInfo.spellID,
+                        spellName = spellName,
+                        ranksPurchased = nodeInfo.ranksPurchased,
+                        maxRanks = nodeInfo.maxRanks,
+                        isSelectionNode = #nodeInfo.entryIDs > 1,
+                        posX = nodeInfo.posX,
+                        posY = nodeInfo.posY,
+                    }
+                    -- table.insert(list,
+                    --     'nodeId: ' .. nodeInfo.ID ..
+                    --     ', entryId: ' .. entryId ..
+                    --     ', spellID: ' .. definitionInfo.spellID ..
+                    --     ', spellName: ' .. spellName ..
+                    --     ', ranks: ' .. nodeInfo.ranksPurchased .. '/' .. nodeInfo.maxRanks
+                    -- )
+                end
+                end
             end
-
-            talents[tier] = GetTalentLink(id)
         end
     end
 
+    -- local tier
+    -- for tier = 1, MAX_TALENT_TIERS do
+    --     local column = select(2, GetTalentTierInfo(tier, 1))
+    --     if column and column > 0 then
+    --         local id, name = GetTalentInfo(tier, column, 1)
+
+    --         if tsNames[name] then
+    --             tsIds[tsNames[name]] = id
+    --         end
+
+    --         talents[tier] = GetTalentLink(id)
+    --     end
+    -- end
+
+    -- hack: sort table by verticle position so that talents are unlocked in the correct order
+    table.sort(talents, function(a, b) return a["posY"] < b["posY"] end)
     profile.talents = talents
 
     local pvpTalentIDs, pvpTalents, pvpTalentSpells = {}, {}, {}
@@ -210,12 +256,15 @@ function addon:SaveActions(profile)
             end
 
         elseif type == "macro" then
-            if id > 0 then
-                local name, icon, body = GetMacroInfo(id)
+            -- Can't trust id from GetActionInfo
+            local macroName = GetActionText(slot)
+            local macroIndex = GetMacroIndexByName(macroName)
+            if macroIndex > 0 then
+                local name, icon, body = GetMacroInfo(macroName)
 
                 icon = icon or ABP_EMPTY_ICON_TEXTURE_ID
 
-                if id > MAX_ACCOUNT_MACROS then
+                if macroIndex > MAX_ACCOUNT_MACROS then
                     actions[slot] = string.format(
                         "|cffff0000|Habp:macro:%s:%s|h[%s]|h|r",
                         icon, self:EncodeLink(body), name
@@ -227,7 +276,7 @@ function addon:SaveActions(profile)
                     )
                 end
 
-                savedMacros[id] = true
+                savedMacros[macroIndex] = true
             end
 
         elseif type == "equipmentset" then
