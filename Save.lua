@@ -169,19 +169,13 @@ function addon:SaveActions(profile)
                         posX = nodeInfo.posX,
                         posY = nodeInfo.posY,
                     }
-                    -- table.insert(list,
-                    --     'nodeId: ' .. nodeInfo.ID ..
-                    --     ', entryId: ' .. entryId ..
-                    --     ', spellID: ' .. definitionInfo.spellID ..
-                    --     ', spellName: ' .. spellName ..
-                    --     ', ranks: ' .. nodeInfo.ranksPurchased .. '/' .. nodeInfo.maxRanks
-                    -- )
                 end
                 end
             end
         end
     end
 
+    -- For older talent UI/pre dragonflight revamp
     -- local tier
     -- for tier = 1, MAX_TALENT_TIERS do
     --     local column = select(2, GetTalentTierInfo(tier, 1))
